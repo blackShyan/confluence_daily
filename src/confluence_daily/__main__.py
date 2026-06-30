@@ -1,6 +1,5 @@
-from .ui import main
+from confluence_daily.ui import main
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
