@@ -18,13 +18,12 @@
 더블클릭:
 
 ```text
-D:\Projects\Company\run_daily_uploader.bat
+run_daily_uploader.bat
 ```
 
 직접 실행:
 
 ```powershell
-cd D:\Projects\Company
 .\.venv\Scripts\python.exe -m confluence_daily
 ```
 
@@ -70,6 +69,23 @@ cd D:\Projects\Company
 
 ## 패키징
 
+더블클릭:
+
+```text
+build_exe.bat
+```
+
+직접 실행:
+
 ```powershell
-python -m PyInstaller --noconsole --name ConfluenceDailyUploader --onefile src\confluence_daily\__main__.py
+.\scripts\build_exe.ps1
+```
+
+빌드 결과는 `dist\ConfluenceDailyUploader\ConfluenceDailyUploader.exe`에 생성됩니다.
+QtWebEngine 로그인창에 필요한 DLL과 리소스가 함께 들어가므로, 배포할 때는 `dist\ConfluenceDailyUploader` 폴더 전체를 압축해서 전달하세요.
+
+이미 의존성을 설치한 뒤 빌드만 다시 할 때는 아래처럼 실행할 수 있습니다.
+
+```powershell
+.\scripts\build_exe.ps1 -SkipInstall
 ```

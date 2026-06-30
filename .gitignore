@@ -10,10 +10,10 @@ __pycache__/
 build/
 dist/
 *.spec
+!packaging/*.spec
 
 *.sqlite3
 *.db
 
 .DS_Store
 Thumbs.db
-
