@@ -25,8 +25,15 @@ from .uploader import DailyUploader
 IMAGE_PREVIEW_EXTENSIONS = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
 
 
+def app_icon_path() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / "confluence_daily" / "assets" / "app_icon.ico"
+    return Path(__file__).resolve().parent / "assets" / "app_icon.ico"
+
+
 def main() -> int:
     try:
+        from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import QApplication
     except ImportError:
         print("PySide6 is required. Install dependencies with: pip install -e .")
@@ -34,6 +41,9 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("컨플루언스 데일리 업로더")
+    icon_path = app_icon_path()
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     app.setQuitOnLastWindowClosed(False)
     controller = MainController(app)
     controller.start()
@@ -176,6 +186,10 @@ class MainController:
     def _build_icon(self):
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+
+        icon_path = app_icon_path()
+        if icon_path.exists():
+            return QIcon(str(icon_path))
 
         pixmap = QPixmap(64, 64)
         pixmap.fill(Qt.GlobalColor.transparent)

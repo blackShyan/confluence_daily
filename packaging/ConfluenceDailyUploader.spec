@@ -6,6 +6,7 @@ if not (ROOT / "src" / "confluence_daily").exists():
 if not (ROOT / "src" / "confluence_daily").exists():
     ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
+ICON = SRC / "confluence_daily" / "assets" / "app_icon.ico"
 
 hiddenimports = [
     "PySide6.QtWebChannel",
@@ -22,7 +23,7 @@ a = Analysis(
     [str(SRC / "confluence_daily" / "__main__.py")],
     pathex=[str(SRC)],
     binaries=[],
-    datas=[],
+    datas=[(str(ICON), "confluence_daily/assets")],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -49,6 +50,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(ICON),
 )
 
 coll = COLLECT(

@@ -25,3 +25,5 @@ confluence-daily = "confluence_daily.ui:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+confluence_daily = ["assets/*.ico", "assets/*.png"]
