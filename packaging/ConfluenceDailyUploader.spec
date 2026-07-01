@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 ROOT = Path.cwd().resolve()
@@ -7,6 +8,7 @@ if not (ROOT / "src" / "confluence_daily").exists():
     ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 ICON = SRC / "confluence_daily" / "assets" / "app_icon.ico"
+VERSION_FILE = os.environ.get("CONFLUENCE_DAILY_VERSION_FILE")
 
 hiddenimports = [
     "PySide6.QtWebChannel",
@@ -34,23 +36,29 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+exe_options = {
+    "name": "ConfluenceDailyUploader",
+    "debug": False,
+    "bootloader_ignore_signals": False,
+    "strip": False,
+    "upx": True,
+    "console": False,
+    "disable_windowed_traceback": False,
+    "argv_emulation": False,
+    "target_arch": None,
+    "codesign_identity": None,
+    "entitlements_file": None,
+    "icon": str(ICON),
+}
+if VERSION_FILE:
+    exe_options["version"] = VERSION_FILE
+
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ConfluenceDailyUploader",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=str(ICON),
+    **exe_options,
 )
 
 coll = COLLECT(

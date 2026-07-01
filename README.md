@@ -86,11 +86,48 @@ build_exe.bat
 .\scripts\build_exe.ps1
 ```
 
-빌드 결과는 `dist\ConfluenceDailyUploader\ConfluenceDailyUploader.exe`에 생성됩니다.
-QtWebEngine 로그인창에 필요한 DLL과 리소스가 함께 들어가므로, 배포할 때는 `dist\ConfluenceDailyUploader` 폴더 전체를 압축해서 전달하세요.
+버전을 지정해서 빌드:
+
+```powershell
+.\scripts\build_exe.ps1 -Version 0.1.1
+```
+
+빌드 결과는 `dist\ConfluenceDailyUploader\ConfluenceDailyUploader.exe`에 생성되고, 업데이트용 manifest는 `dist\latest.json`에 생성됩니다.
+QtWebEngine 로그인창에 필요한 DLL과 리소스가 함께 들어가므로, 배포하거나 NAS 업데이트 경로에 올릴 때는 `dist\ConfluenceDailyUploader` 폴더 전체와 `dist\latest.json`을 함께 사용하세요.
 
 이미 의존성을 설치한 뒤 빌드만 다시 할 때는 아래처럼 실행할 수 있습니다.
 
 ```powershell
 .\scripts\build_exe.ps1 -SkipInstall
 ```
+
+빌드 후 파일 서버 업데이트 경로에 바로 올릴 때는 아래처럼 실행합니다.
+
+```powershell
+.\scripts\build_exe.ps1 -Version 0.1.1 -PublishPath "\\server\share\Tools\ConfluenceDailyUploader"
+```
+
+## 업데이트 배포
+
+NAS 또는 파일 서버의 업데이트 경로에는 아래 구조로 파일을 올립니다.
+
+```text
+Tools\ConfluenceDailyUploader\
+  latest.json
+  ConfluenceDailyUploader\
+    ConfluenceDailyUploader.exe
+    _internal\
+    ...
+```
+
+`latest.json` 예시:
+
+```json
+{
+  "version": "0.1.1",
+  "folder": "ConfluenceDailyUploader",
+  "notes": "변경 내용 메모"
+}
+```
+
+앱 설정의 `업데이트 경로`에는 `latest.json`이 들어 있는 폴더를 지정합니다. 앱은 시작 시 이 manifest를 확인하고, 더 높은 버전이 있으면 업데이트 설치 여부를 묻습니다.

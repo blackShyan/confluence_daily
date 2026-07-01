@@ -26,6 +26,8 @@ class AppConfig:
     timezone: str = "Asia/Seoul"
     autostart: bool = False
     theme_mode: str = "light"
+    update_source_path: str = ""
+    check_updates_on_startup: bool = True
 
     @property
     def is_data_center(self) -> bool:

@@ -7,6 +7,7 @@ import sys
 import traceback
 from urllib.parse import urlparse
 
+from . import __version__
 from .autostart import set_autostart
 from .config import (
     AppConfig,
@@ -19,6 +20,7 @@ from .config import (
 from .confluence_client import ConfluenceClient
 from .models import ConfigurationError, DailyEntryConflict, DailyInput
 from .state import DailyState
+from .updater import UpdateError, can_self_update, find_update, launch_update_installer, stage_update
 from .uploader import DailyUploader
 
 
@@ -42,7 +44,8 @@ def main() -> int:
         return 1
 
     app = QApplication(sys.argv)
-    app.setApplicationName("컨플루언스 데일리 업로더")
+    app.setApplicationName("Confluence Daily Uploader")
+    app.setApplicationDisplayName(f"Confluence Daily Uploader v{__version__}")
     icon_path = app_icon_path()
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
@@ -67,7 +70,7 @@ class MainController:
         self.reminder_dialog = None
 
         self.tray = QSystemTrayIcon(self._build_icon(), app)
-        self.tray.setToolTip("컨플루언스 데일리 업로더")
+        self.tray.setToolTip(f"컨플루언스 데일리 업로더 v{__version__}")
         self.menu = QMenu()
 
         self.write_action = QAction("데일리 작성", self.menu)
@@ -76,6 +79,8 @@ class MainController:
         self.status_action.triggered.connect(self.show_today_status)
         self.open_site_action = QAction("컨플루언스 사이트 열기", self.menu)
         self.open_site_action.triggered.connect(self.open_confluence_site)
+        self.update_action = QAction("업데이트 확인", self.menu)
+        self.update_action.triggered.connect(lambda: self.check_for_updates(silent=False))
         self.settings_action = QAction("설정", self.menu)
         self.settings_action.triggered.connect(self.show_settings_dialog)
         self.snooze_action = QAction("10분 뒤 다시 알림", self.menu)
@@ -89,6 +94,7 @@ class MainController:
             self.write_action,
             self.status_action,
             self.open_site_action,
+            self.update_action,
             self.settings_action,
             self.snooze_action,
             self.complete_action,
@@ -105,6 +111,7 @@ class MainController:
         self.keep_alive_timer = QTimer()
         self.keep_alive_timer.setInterval(SESSION_KEEP_ALIVE_INTERVAL_MS)
         self.keep_alive_timer.timeout.connect(self.keep_alive_session)
+        self.startup_update_checked = False
 
     def start(self) -> None:
         from PySide6.QtCore import QTimer
@@ -118,6 +125,7 @@ class MainController:
             self.show_login_dialog()
         self.check_reminder()
         QTimer.singleShot(SESSION_INITIAL_CHECK_DELAY_MS, self.keep_alive_session)
+        QTimer.singleShot(5000, self.check_updates_on_startup)
 
     def show_daily_dialog(self) -> None:
         self.daily_dialog = DailyDialog(self)
@@ -144,6 +152,66 @@ class MainController:
 
         if not QDesktopServices.openUrl(QUrl(url)):
             QMessageBox.warning(None, "열기 실패", "브라우저에서 Confluence 사이트를 열지 못했습니다.")
+
+    def check_updates_on_startup(self) -> None:
+        if self.startup_update_checked:
+            return
+        self.startup_update_checked = True
+        if not self.config.check_updates_on_startup:
+            return
+        if not self.config.update_source_path.strip():
+            return
+        self.check_for_updates(silent=True)
+
+    def check_for_updates(self, silent: bool = False) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        try:
+            update_info = find_update(self.config.update_source_path, __version__)
+        except Exception as exc:
+            if not silent:
+                QMessageBox.warning(None, "업데이트 확인 실패", str(exc))
+            return
+
+        if update_info is None:
+            if not silent:
+                QMessageBox.information(None, "업데이트 확인", f"현재 최신 버전입니다.\n\n현재 버전: v{__version__}")
+            return
+
+        notes = f"\n\n{update_info.notes}" if update_info.notes else ""
+        choice = QMessageBox.question(
+            None,
+            "업데이트 발견",
+            f"새 버전 v{update_info.version}이 있습니다.\n"
+            f"현재 버전: v{__version__}\n\n"
+            "지금 업데이트를 설치하고 앱을 재시작할까요?"
+            f"{notes}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+
+        if not can_self_update():
+            QMessageBox.information(
+                None,
+                "업데이트 안내",
+                "개발 실행 모드에서는 자동 설치를 실행하지 않습니다.\n"
+                f"NAS의 배포 폴더를 설치 위치로 직접 복사해 주세요.\n\n{update_info.source_dir}",
+            )
+            return
+
+        try:
+            staged_dir = stage_update(update_info)
+            launch_update_installer(staged_dir)
+        except UpdateError as exc:
+            QMessageBox.critical(None, "업데이트 실패", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(None, "업데이트 실패", str(exc))
+            return
+
+        self.app.quit()
 
     def show_today_status(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -331,7 +399,7 @@ class DailyDialog:
 
         self.controller = controller
         self.dialog = DropDialog(self)
-        self.dialog.setWindowTitle("데일리 작성")
+        self.dialog.setWindowTitle(f"데일리 작성 v{__version__}")
         self.dialog.resize(560, 520)
 
         layout = QVBoxLayout(self.dialog)
@@ -700,8 +768,8 @@ class SettingsDialog:
         self.current_theme_mode = self.original_theme_mode
         self.theme_committed = False
         self.dialog = QDialog()
-        self.dialog.setWindowTitle("설정")
-        self.dialog.resize(560, 430)
+        self.dialog.setWindowTitle(f"설정 v{__version__}")
+        self.dialog.resize(560, 500)
 
         outer = QVBoxLayout(self.dialog)
         form = QFormLayout()
@@ -744,6 +812,9 @@ class SettingsDialog:
         self.reminder_time.setTime(QTime(parsed_time.hour, parsed_time.minute))
         self.autostart = QCheckBox("Windows 시작 시 자동 실행")
         self.autostart.setChecked(config.autostart)
+        self.update_source_path = QLineEdit(config.update_source_path)
+        self.check_updates_on_startup = QCheckBox("앱 시작 시 업데이트 검사")
+        self.check_updates_on_startup.setChecked(config.check_updates_on_startup)
 
         form.addRow("API 모드", self.api_mode)
         form.addRow("Confluence URL", self.base_url)
@@ -755,6 +826,8 @@ class SettingsDialog:
         form.addRow("화면 테마", theme_row)
         form.addRow("알림 시간", self.reminder_time)
         form.addRow("", self.autostart)
+        form.addRow("업데이트 경로", self.update_source_path)
+        form.addRow("", self.check_updates_on_startup)
         outer.addLayout(form)
 
         bottom = QHBoxLayout()
@@ -865,6 +938,8 @@ class SettingsDialog:
             timezone="Asia/Seoul",
             autostart=self.autostart.isChecked(),
             theme_mode=self.current_theme_mode,
+            update_source_path=self.update_source_path.text().strip(),
+            check_updates_on_startup=self.check_updates_on_startup.isChecked(),
         )
 
     def _theme_button_toggled(self, button, checked: bool) -> None:
@@ -895,7 +970,7 @@ class ReminderDialog:
 
         self.controller = controller
         self.dialog = QDialog()
-        self.dialog.setWindowTitle("데일리 알림")
+        self.dialog.setWindowTitle(f"데일리 알림 v{__version__}")
         self.dialog.resize(380, 160)
 
         layout = QVBoxLayout(self.dialog)
