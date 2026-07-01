@@ -468,6 +468,7 @@ class SettingsDialog:
     def __init__(self, controller: MainController) -> None:
         from PySide6.QtCore import QTime
         from PySide6.QtWidgets import (
+            QButtonGroup,
             QCheckBox,
             QComboBox,
             QDialog,
@@ -475,12 +476,17 @@ class SettingsDialog:
             QHBoxLayout,
             QLineEdit,
             QPushButton,
+            QRadioButton,
             QTimeEdit,
             QVBoxLayout,
+            QWidget,
         )
 
         self.controller = controller
         config = controller.config
+        self.original_theme_mode = config.effective_theme_mode
+        self.current_theme_mode = self.original_theme_mode
+        self.theme_committed = False
         self.dialog = QDialog()
         self.dialog.setWindowTitle("설정")
         self.dialog.resize(560, 430)
@@ -504,11 +510,23 @@ class SettingsDialog:
         self.month_page_policy.addItem("선택한 날짜의 월 페이지", "date_month")
         policy_index = self.month_page_policy.findData(config.month_page_policy)
         self.month_page_policy.setCurrentIndex(max(policy_index, 0))
-        self.theme_mode = QComboBox()
-        self.theme_mode.addItem("라이트 모드", "light")
-        self.theme_mode.addItem("다크 모드", "dark")
-        theme_index = self.theme_mode.findData(config.effective_theme_mode)
-        self.theme_mode.setCurrentIndex(max(theme_index, 0))
+        self.theme_group = QButtonGroup(self.dialog)
+        self.light_theme = QRadioButton("라이트 모드")
+        self.dark_theme = QRadioButton("다크 모드")
+        self.theme_group.addButton(self.light_theme)
+        self.theme_group.addButton(self.dark_theme)
+        self.light_theme.setProperty("themeMode", "light")
+        self.dark_theme.setProperty("themeMode", "dark")
+        if self.current_theme_mode == "dark":
+            self.dark_theme.setChecked(True)
+        else:
+            self.light_theme.setChecked(True)
+        theme_row = QWidget()
+        theme_layout = QHBoxLayout(theme_row)
+        theme_layout.setContentsMargins(0, 0, 0, 0)
+        theme_layout.addWidget(self.light_theme)
+        theme_layout.addWidget(self.dark_theme)
+        theme_layout.addStretch(1)
         self.reminder_time = QTimeEdit()
         parsed_time = _parse_time(config.reminder_time)
         self.reminder_time.setTime(QTime(parsed_time.hour, parsed_time.minute))
@@ -522,7 +540,7 @@ class SettingsDialog:
         form.addRow("상위 페이지 ID", self.parent_page_id)
         form.addRow("페이지 이름", self.user_name)
         form.addRow("월 페이지 기준", self.month_page_policy)
-        form.addRow("화면 테마", self.theme_mode)
+        form.addRow("화면 테마", theme_row)
         form.addRow("알림 시간", self.reminder_time)
         form.addRow("", self.autostart)
         outer.addLayout(form)
@@ -542,7 +560,9 @@ class SettingsDialog:
         self.login_button.clicked.connect(self.login_with_browser)
         self.test_button.clicked.connect(self.test_connection)
         self.save_button.clicked.connect(self.save)
-        self.cancel_button.clicked.connect(self.dialog.close)
+        self.cancel_button.clicked.connect(self.cancel)
+        self.theme_group.buttonToggled.connect(self._theme_button_toggled)
+        self.dialog.finished.connect(self._restore_unsaved_theme)
         self._apply_style()
 
     def show(self) -> None:
@@ -565,8 +585,13 @@ class SettingsDialog:
             QMessageBox.critical(self.dialog, "설정 저장 실패", str(exc))
             return
 
+        self.theme_committed = True
         self.controller.reload_config()
         QMessageBox.information(self.dialog, "설정 저장", "설정을 저장했습니다.")
+        self.dialog.close()
+
+    def cancel(self) -> None:
+        self._restore_unsaved_theme()
         self.dialog.close()
 
     def test_connection(self) -> None:
@@ -601,6 +626,7 @@ class SettingsDialog:
         try:
             config.validate_for_upload()
             save_config(config)
+            self.theme_committed = True
             self.controller.reload_config()
         except Exception as exc:
             from PySide6.QtWidgets import QMessageBox
@@ -626,11 +652,29 @@ class SettingsDialog:
             reminder_time=f"{reminder.hour():02d}:{reminder.minute():02d}",
             timezone="Asia/Seoul",
             autostart=self.autostart.isChecked(),
-            theme_mode=self.theme_mode.currentData(),
+            theme_mode=self.current_theme_mode,
         )
 
+    def _theme_button_toggled(self, button, checked: bool) -> None:
+        if not checked:
+            return
+
+        mode = button.property("themeMode")
+        if mode not in {"light", "dark"}:
+            return
+
+        self.current_theme_mode = mode
+        _apply_app_theme(self.controller.app, mode)
+        self._apply_style()
+
+    def _restore_unsaved_theme(self, *_args) -> None:
+        if self.theme_committed:
+            return
+        if self.controller.config.effective_theme_mode != self.current_theme_mode:
+            _apply_app_theme(self.controller.app, self.controller.config.effective_theme_mode)
+
     def _apply_style(self) -> None:
-        self.dialog.setStyleSheet(_app_style(self.controller.config.effective_theme_mode))
+        self.dialog.setStyleSheet(_app_style(self.current_theme_mode))
 
 
 class ReminderDialog:
@@ -884,7 +928,7 @@ def _app_style(theme_mode: str = "light") -> str:
                 selection-background-color: #5b8cff;
                 selection-color: white;
             }
-            QCheckBox {
+            QCheckBox, QRadioButton {
                 color: #e8edf7;
                 spacing: 8px;
             }
@@ -934,7 +978,7 @@ def _app_style(theme_mode: str = "light") -> str:
             selection-background-color: #2f6df6;
             selection-color: white;
         }
-        QCheckBox { color: #22314d; spacing: 8px; }
+        QCheckBox, QRadioButton { color: #22314d; spacing: 8px; }
         QPushButton {
             background: #e8edf7;
             color: #172033;
