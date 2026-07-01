@@ -219,6 +219,7 @@ class MainController:
 class DailyDialog:
     def __init__(self, controller: MainController) -> None:
         from PySide6.QtCore import QDate, Qt
+        from PySide6.QtGui import QKeySequence, QShortcut
         from PySide6.QtWidgets import (
             QDateEdit,
             QDialog,
@@ -230,8 +231,38 @@ class DailyDialog:
             QVBoxLayout,
         )
 
+        class DropDialog(QDialog):
+            def __init__(self, owner: DailyDialog) -> None:
+                super().__init__()
+                self.owner = owner
+                self.setAcceptDrops(True)
+
+            def dragEnterEvent(self, event) -> None:
+                self.owner.handle_drag_enter(event)
+
+            def dragMoveEvent(self, event) -> None:
+                self.owner.handle_drag_enter(event)
+
+            def dropEvent(self, event) -> None:
+                self.owner.handle_drop(event)
+
+        class DropFileList(QListWidget):
+            def __init__(self, owner: DailyDialog) -> None:
+                super().__init__()
+                self.owner = owner
+                self.setAcceptDrops(True)
+
+            def dragEnterEvent(self, event) -> None:
+                self.owner.handle_drag_enter(event)
+
+            def dragMoveEvent(self, event) -> None:
+                self.owner.handle_drag_enter(event)
+
+            def dropEvent(self, event) -> None:
+                self.owner.handle_drop(event)
+
         self.controller = controller
-        self.dialog = QDialog()
+        self.dialog = DropDialog(self)
         self.dialog.setWindowTitle("데일리 작성")
         self.dialog.resize(560, 520)
 
@@ -245,8 +276,9 @@ class DailyDialog:
         layout.addWidget(self.date_edit)
 
         layout.addWidget(QLabel("캡처/녹화 파일"))
-        self.file_list = QListWidget()
+        self.file_list = DropFileList(self)
         self.file_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.file_list.setToolTip("파일을 드래그 앤 드랍하거나 Ctrl+V로 붙여넣을 수 있습니다.")
         layout.addWidget(self.file_list, 1)
 
         file_buttons = QHBoxLayout()
@@ -287,6 +319,9 @@ class DailyDialog:
         self.file_list.currentItemChanged.connect(self.update_file_preview)
         self.upload_button.clicked.connect(self.upload)
         self.close_button.clicked.connect(self.dialog.close)
+        self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self.dialog)
+        self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.paste_shortcut.activated.connect(self.paste_from_clipboard)
         self._apply_style()
 
     def show(self) -> None:
@@ -307,19 +342,49 @@ class DailyDialog:
             "",
             "Media files (*.png *.jpg *.jpeg *.webp *.gif *.mp4 *.mov *.mkv *.avi *.wmv);;All files (*.*)",
         )
+        self.add_file_paths([Path(file_name) for file_name in files])
+
+    def add_file_paths(self, paths: list[Path] | tuple[Path, ...]) -> bool:
         existing = {self.file_list.item(index).text() for index in range(self.file_list.count())}
         last_added_row = None
-        for file_name in files:
-            if file_name not in existing:
-                self.file_list.addItem(file_name)
-                last_added_row = self.file_list.count() - 1
+        for path in paths:
+            if not path.exists() or not path.is_file():
+                continue
+
+            file_name = str(path)
+            if file_name in existing:
+                continue
+
+            self.file_list.addItem(file_name)
+            existing.add(file_name)
+            last_added_row = self.file_list.count() - 1
+
         if last_added_row is not None:
             self.file_list.setCurrentRow(last_added_row)
+            return True
+        return False
 
     def add_clipboard_image(self) -> None:
+        self.add_clipboard_content(prefer_files=False, show_warning=True)
+
+    def paste_from_clipboard(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        if self.add_clipboard_content(prefer_files=True, show_warning=False):
+            return
+
+        focused = QApplication.focusWidget()
+        paste = getattr(focused, "paste", None)
+        if callable(paste):
+            paste()
+
+    def add_clipboard_content(self, prefer_files: bool, show_warning: bool) -> bool:
         from PySide6.QtWidgets import QApplication, QMessageBox
 
         clipboard = QApplication.clipboard()
+        if prefer_files and self.add_file_paths(self._file_paths_from_mime_data(clipboard.mimeData())):
+            return True
+
         image = clipboard.image()
         if image.isNull():
             pixmap = clipboard.pixmap()
@@ -327,15 +392,16 @@ class DailyDialog:
                 image = pixmap.toImage()
 
         if image.isNull():
-            QMessageBox.warning(self.dialog, "클립보드 이미지 없음", "클립보드에 복사된 이미지가 없습니다.")
-            return
+            if show_warning:
+                QMessageBox.warning(self.dialog, "클립보드 이미지 없음", "클립보드에 복사된 이미지가 없습니다.")
+            return False
 
         target_dir = app_data_dir() / "clipboard_images"
         target_dir.mkdir(parents=True, exist_ok=True)
         file_path = target_dir / f"clipboard_{datetime.now():%Y%m%d_%H%M%S_%f}.png"
         if not image.save(str(file_path), "PNG"):
             QMessageBox.critical(self.dialog, "이미지 저장 실패", "클립보드 이미지를 PNG 파일로 저장하지 못했습니다.")
-            return
+            return False
 
         existing = {self.file_list.item(index).text() for index in range(self.file_list.count())}
         if str(file_path) not in existing:
@@ -346,6 +412,32 @@ class DailyDialog:
                 if self.file_list.item(index).text() == str(file_path):
                     self.file_list.setCurrentRow(index)
                     break
+        return True
+
+    def handle_drag_enter(self, event) -> None:
+        if self._file_paths_from_mime_data(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def handle_drop(self, event) -> None:
+        if self.add_file_paths(self._file_paths_from_mime_data(event.mimeData())):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def _file_paths_from_mime_data(self, mime_data) -> list[Path]:
+        if mime_data is None or not mime_data.hasUrls():
+            return []
+
+        paths = []
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if path.exists() and path.is_file():
+                paths.append(path)
+        return paths
 
     def remove_selected_files(self) -> None:
         for item in self.file_list.selectedItems():
