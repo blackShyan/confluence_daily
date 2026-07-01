@@ -16,6 +16,7 @@ class ConfluenceClient:
         api_token: str | None = None,
         session: Any | None = None,
         session_cookies: str | None = None,
+        timeout: int = 60,
     ) -> None:
         if session is None:
             try:
@@ -26,6 +27,7 @@ class ConfluenceClient:
 
         self.config = config
         self.session = session
+        self.timeout = timeout
         if config.is_data_center:
             if session_cookies:
                 self._apply_session_cookies(session_cookies)
@@ -89,6 +91,23 @@ class ConfluenceClient:
             params={"body-format": "storage"},
         )
         return self._page_from_json(payload)
+
+    def export_session_cookies(self) -> str:
+        cookies = []
+        for cookie in getattr(self.session, "cookies", []):
+            name = getattr(cookie, "name", "")
+            value = getattr(cookie, "value", "")
+            if not name:
+                continue
+            cookies.append(
+                {
+                    "name": name,
+                    "value": value,
+                    "domain": getattr(cookie, "domain", "") or "",
+                    "path": getattr(cookie, "path", "") or "/",
+                }
+            )
+        return json.dumps(cookies, ensure_ascii=False)
 
     def create_page(self, title: str, storage: str) -> PagePayload:
         if self.config.is_data_center:
@@ -214,14 +233,20 @@ class ConfluenceClient:
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         url = self._url(path)
-        response = self.session.request(method, url, timeout=60, **kwargs)
+        response = self.session.request(method, url, timeout=self.timeout, **kwargs)
         if response.status_code >= 400:
             body = response.text[:1000] if getattr(response, "text", None) else ""
             raise ConfluenceApiError(f"Confluence API {method} {url} failed: {response.status_code} {body}")
 
         if response.status_code == 204 or not response.content:
             return {}
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            body = response.text[:1000] if getattr(response, "text", None) else ""
+            raise ConfluenceApiError(
+                f"Confluence API {method} {url} did not return JSON. The browser session may be expired. {body}"
+            ) from exc
 
     def _url(self, path: str) -> str:
         if self.config.is_data_center:

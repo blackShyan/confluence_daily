@@ -54,6 +54,19 @@ class FakeCookieJar:
     def set(self, name, value, **kwargs):
         self.cookies.append((name, value, kwargs))
 
+    def __iter__(self):
+        for name, value, kwargs in self.cookies:
+            yield type(
+                "Cookie",
+                (),
+                {
+                    "name": name,
+                    "value": value,
+                    "domain": kwargs.get("domain", ""),
+                    "path": kwargs.get("path", "/"),
+                },
+            )()
+
 
 class ConfluenceClientTests(unittest.TestCase):
     def test_data_center_can_use_browser_session_cookies(self):
@@ -114,6 +127,33 @@ class ConfluenceClientTests(unittest.TestCase):
         self.assertEqual(request["url"], "https://confluence.example.com/rest/api/content")
         self.assertEqual(request["kwargs"]["json"]["space"]["key"], "TEAM")
         self.assertEqual(request["kwargs"]["json"]["ancestors"], [{"id": "1234567890"}])
+
+    def test_data_center_exports_session_cookies_after_request(self):
+        config = AppConfig(
+            base_url="https://confluence.example.com",
+            email="user@example.com",
+            api_mode="data_center",
+            space_key="TEAM",
+            parent_page_id="1234567890",
+        )
+        session = FakeSession()
+        cookies = json.dumps(
+            [
+                {
+                    "name": "JSESSIONID",
+                    "value": "abc",
+                    "domain": "confluence.example.com",
+                    "path": "/",
+                }
+            ]
+        )
+        client = ConfluenceClient(config, session=session, session_cookies=cookies)
+
+        exported = json.loads(client.export_session_cookies())
+
+        self.assertEqual(exported[0]["name"], "JSESSIONID")
+        self.assertEqual(exported[0]["value"], "abc")
+        self.assertEqual(exported[0]["domain"], "confluence.example.com")
 
     def test_cloud_uses_basic_auth_and_wiki_v2_url(self):
         config = AppConfig(

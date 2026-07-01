@@ -23,6 +23,8 @@ from .uploader import DailyUploader
 
 
 IMAGE_PREVIEW_EXTENSIONS = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
+SESSION_KEEP_ALIVE_INTERVAL_MS = 15 * 60 * 1000
+SESSION_INITIAL_CHECK_DELAY_MS = 30 * 1000
 
 
 def app_icon_path() -> Path:
@@ -97,15 +99,22 @@ class MainController:
         self.timer = QTimer()
         self.timer.setInterval(60_000)
         self.timer.timeout.connect(self.check_reminder)
+        self.keep_alive_timer = QTimer()
+        self.keep_alive_timer.setInterval(SESSION_KEEP_ALIVE_INTERVAL_MS)
+        self.keep_alive_timer.timeout.connect(self.keep_alive_session)
 
     def start(self) -> None:
+        from PySide6.QtCore import QTimer
+
         self.tray.show()
         self.timer.start()
+        self.keep_alive_timer.start()
         if not self.config.base_url:
             self.show_settings_dialog()
         elif self.config.is_data_center and not get_session_cookies(self.config.credential_account):
             self.show_login_dialog()
         self.check_reminder()
+        QTimer.singleShot(SESSION_INITIAL_CHECK_DELAY_MS, self.keep_alive_session)
 
     def show_daily_dialog(self) -> None:
         self.daily_dialog = DailyDialog(self)
@@ -140,8 +149,47 @@ class MainController:
         return uploader.upload(daily, conflict_policy)
 
     def show_login_dialog(self) -> None:
-        self.login_dialog = BrowserLoginDialog(self.config)
+        self.login_dialog = BrowserLoginDialog(self.config, on_session_saved=self._on_session_saved)
         self.login_dialog.show()
+
+    def check_session_status(self) -> tuple[bool, str]:
+        try:
+            self.config.validate_for_upload()
+        except Exception:
+            return False, "설정 필요"
+
+        try:
+            cookies = get_session_cookies(self.config.credential_account)
+        except Exception:
+            return False, "세션 확인 실패"
+        if not cookies:
+            return False, "로그인 필요"
+
+        try:
+            client = ConfluenceClient(self.config, session_cookies=cookies, timeout=15)
+            client.get_page(self.config.parent_page_id)
+            self._save_client_session_cookies(client)
+        except Exception:
+            return False, "세션 만료"
+
+        return True, "인증됨"
+
+    def keep_alive_session(self) -> None:
+        if not self.config.is_data_center:
+            return
+
+        valid, message = self.check_session_status()
+        if self.daily_dialog is not None and hasattr(self.daily_dialog, "set_session_status"):
+            self.daily_dialog.set_session_status(valid, message)
+
+    def _save_client_session_cookies(self, client: ConfluenceClient) -> None:
+        cookies_json = client.export_session_cookies()
+        if cookies_json and cookies_json != "[]":
+            set_session_cookies(self.config.credential_account, cookies_json)
+
+    def _on_session_saved(self) -> None:
+        if self.daily_dialog is not None and hasattr(self.daily_dialog, "refresh_session_status"):
+            self.daily_dialog.refresh_session_status()
 
     def reload_config(self) -> None:
         self.config = load_config()
@@ -221,7 +269,7 @@ class MainController:
 
 class DailyDialog:
     def __init__(self, controller: MainController) -> None:
-        from PySide6.QtCore import QDate, Qt
+        from PySide6.QtCore import QDate, QTimer, Qt
         from PySide6.QtGui import QKeySequence, QShortcut
         from PySide6.QtWidgets import (
             QDateEdit,
@@ -271,6 +319,16 @@ class DailyDialog:
 
         layout = QVBoxLayout(self.dialog)
         layout.setSpacing(12)
+
+        session_row = QHBoxLayout()
+        self.session_status_label = QLabel("● 인증 확인 중")
+        self.session_status_label.setObjectName("sessionStatus")
+        self.session_login_button = QPushButton("로그인")
+        self.session_login_button.setEnabled(False)
+        session_row.addWidget(self.session_status_label)
+        session_row.addStretch(1)
+        session_row.addWidget(self.session_login_button)
+        layout.addLayout(session_row)
 
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
@@ -322,10 +380,12 @@ class DailyDialog:
         self.file_list.currentItemChanged.connect(self.update_file_preview)
         self.upload_button.clicked.connect(self.upload)
         self.close_button.clicked.connect(self.dialog.close)
+        self.session_login_button.clicked.connect(self.controller.show_login_dialog)
         self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self.dialog)
         self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.paste_shortcut.activated.connect(self.paste_from_clipboard)
         self._apply_style()
+        QTimer.singleShot(100, self.refresh_session_status)
 
     def show(self) -> None:
         self.dialog.show()
@@ -505,6 +565,26 @@ class DailyDialog:
     def _apply_file_list_item_styles(self) -> None:
         for index in range(self.file_list.count()):
             self._apply_file_item_style(self.file_list.item(index))
+
+    def refresh_session_status(self) -> None:
+        self.set_session_status(False, "인증 확인 중", checking=True)
+        valid, message = self.controller.check_session_status()
+        self.set_session_status(valid, message)
+
+    def set_session_status(self, valid: bool, message: str, checking: bool = False) -> None:
+        if checking:
+            color = "#d97706"
+            self.session_status_label.setText("● 인증 확인 중")
+            self.session_login_button.setEnabled(False)
+        elif valid:
+            color = "#15803d"
+            self.session_status_label.setText(f"● {message}")
+            self.session_login_button.setEnabled(False)
+        else:
+            color = "#dc2626"
+            self.session_status_label.setText(f"● {message}")
+            self.session_login_button.setEnabled(message != "설정 필요")
+        self.session_status_label.setStyleSheet(f"font-weight: 700; color: {color};")
 
     def upload(self) -> None:
         from PySide6.QtCore import Qt
@@ -843,15 +923,18 @@ class ReminderDialog:
 
 
 class BrowserLoginDialog:
-    def __init__(self, config: AppConfig, parent=None) -> None:
+    def __init__(self, config: AppConfig, parent=None, on_session_saved=None) -> None:
         from PySide6.QtCore import QUrl
         from PySide6.QtWebEngineCore import QWebEngineProfile
         from PySide6.QtWebEngineWidgets import QWebEngineView
         from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
         self.config = config
+        self.on_session_saved = on_session_saved
         self.cookies: dict[tuple[str, str, str], dict[str, str]] = {}
         self.base_host = urlparse(config.base_url).hostname or ""
+        self.on_confluence_page = False
+        self.auto_save_pending = False
         self.dialog = QDialog(parent)
         self.dialog.setWindowTitle("Confluence 로그인")
         self.dialog.resize(1080, 760)
@@ -863,6 +946,7 @@ class BrowserLoginDialog:
 
         self.view = QWebEngineView()
         profile = QWebEngineProfile.defaultProfile()
+        _configure_browser_profile(profile)
         self.cookie_store = profile.cookieStore()
         self.cookie_store.cookieAdded.connect(self._on_cookie_added)
         if hasattr(self.cookie_store, "loadAllCookies"):
@@ -905,6 +989,7 @@ class BrowserLoginDialog:
                 "domain": domain,
                 "path": path,
             }
+            self._schedule_auto_save_session()
 
     def _cookie_can_auth_confluence(self, domain: str) -> bool:
         if not self.base_host:
@@ -919,9 +1004,27 @@ class BrowserLoginDialog:
         url = str(url.toString())
         host = urlparse(url).hostname or ""
         if host.lower() == self.base_host.lower() and "/Login" not in url and "nxsaml" not in url:
-            self.status_label.setText("Confluence 페이지가 열렸습니다. 로그인 상태라면 '세션 저장'을 눌러주세요.")
+            self.on_confluence_page = True
+            self.status_label.setText("Confluence 페이지가 열렸습니다. 세션을 자동 저장하는 중입니다.")
+            self._schedule_auto_save_session()
         else:
+            self.on_confluence_page = False
             self.status_label.setText("회사 SSO 로그인을 진행해 주세요. 로그인 후 Confluence 페이지로 돌아오면 세션을 저장할 수 있습니다.")
+
+    def _schedule_auto_save_session(self) -> None:
+        from PySide6.QtCore import QTimer
+
+        if self.auto_save_pending or not self.on_confluence_page or not self.cookies:
+            return
+        self.auto_save_pending = True
+        QTimer.singleShot(1000, self._auto_save_session)
+
+    def _auto_save_session(self) -> None:
+        self.auto_save_pending = False
+        if not self.on_confluence_page or not self.cookies:
+            return
+        if self._save_session(show_message=False):
+            self.status_label.setText("Confluence 로그인 세션을 자동 저장했습니다.")
 
     def save_session(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -947,6 +1050,9 @@ class BrowserLoginDialog:
             QMessageBox.critical(self.dialog, "세션 저장 실패", str(exc))
             return False
 
+        if self.on_session_saved:
+            self.on_session_saved()
+
         if show_message:
             QMessageBox.information(
                 self.dialog,
@@ -954,6 +1060,29 @@ class BrowserLoginDialog:
                 f"Confluence API 호출용 브라우저 세션을 저장했습니다.\n저장된 쿠키 수: {len(cookies)}",
             )
         return True
+
+
+def _configure_browser_profile(profile) -> None:
+    storage_dir = app_data_dir() / "browser_profile"
+    cache_dir = app_data_dir() / "browser_cache"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        profile.setPersistentStoragePath(str(storage_dir))
+        profile.setCachePath(str(cache_dir))
+    except Exception:
+        pass
+
+    try:
+        profile.setPersistentCookiesPolicy(profile.PersistentCookiesPolicy.ForcePersistentCookies)
+    except Exception:
+        pass
+
+    try:
+        profile.setHttpCacheType(profile.HttpCacheType.DiskHttpCache)
+    except Exception:
+        pass
 
 
 def _parse_time(value: str) -> time:
