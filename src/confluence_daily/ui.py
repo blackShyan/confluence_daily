@@ -146,6 +146,9 @@ class MainController:
     def reload_config(self) -> None:
         self.config = load_config()
         _apply_app_theme(self.app, self.config.effective_theme_mode)
+        for dialog in (self.daily_dialog, self.reminder_dialog):
+            if dialog is not None and hasattr(dialog, "_apply_style"):
+                dialog._apply_style()
 
     def check_reminder(self) -> None:
         now = datetime.now()
@@ -355,7 +358,7 @@ class DailyDialog:
             if file_name in existing:
                 continue
 
-            self.file_list.addItem(file_name)
+            self.file_list.addItem(self._new_file_item(file_name))
             existing.add(file_name)
             last_added_row = self.file_list.count() - 1
 
@@ -405,7 +408,7 @@ class DailyDialog:
 
         existing = {self.file_list.item(index).text() for index in range(self.file_list.count())}
         if str(file_path) not in existing:
-            self.file_list.addItem(str(file_path))
+            self.file_list.addItem(self._new_file_item(str(file_path)))
             self.file_list.setCurrentRow(self.file_list.count() - 1)
         else:
             for index in range(self.file_list.count()):
@@ -484,6 +487,25 @@ class DailyDialog:
         self.preview_label.setPixmap(QPixmap())
         self.preview_label.setText(message)
 
+    def _new_file_item(self, file_name: str):
+        from PySide6.QtWidgets import QListWidgetItem
+
+        item = QListWidgetItem(file_name)
+        item.setToolTip(file_name)
+        self._apply_file_item_style(item)
+        return item
+
+    def _apply_file_item_style(self, item) -> None:
+        from PySide6.QtGui import QColor
+
+        colors = _theme_colors(self.controller.config.effective_theme_mode)
+        item.setForeground(QColor(colors["text"]))
+        item.setBackground(QColor(colors["input_bg"]))
+
+    def _apply_file_list_item_styles(self) -> None:
+        for index in range(self.file_list.count()):
+            self._apply_file_item_style(self.file_list.item(index))
+
     def upload(self) -> None:
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QMessageBox
@@ -552,6 +574,7 @@ class DailyDialog:
 
     def _apply_style(self) -> None:
         self.dialog.setStyleSheet(_app_style(self.controller.config.effective_theme_mode))
+        self._apply_file_list_item_styles()
         self.upload_button.setObjectName("primary")
         self.upload_button.setDefault(True)
 
@@ -945,44 +968,64 @@ def _apply_app_theme(app, theme_mode: str) -> None:
     from PySide6.QtGui import QColor, QPalette
 
     app.setStyle("Fusion")
-    mode = theme_mode if theme_mode in {"light", "dark"} else "light"
+    colors = _theme_colors(theme_mode)
     palette = QPalette()
 
-    if mode == "dark":
-        colors = {
-            QPalette.ColorRole.Window: "#171b22",
-            QPalette.ColorRole.WindowText: "#e8edf7",
-            QPalette.ColorRole.Base: "#202632",
-            QPalette.ColorRole.AlternateBase: "#262e3b",
-            QPalette.ColorRole.Text: "#edf2f8",
-            QPalette.ColorRole.Button: "#2d3542",
-            QPalette.ColorRole.ButtonText: "#edf2f8",
-            QPalette.ColorRole.ToolTipBase: "#202632",
-            QPalette.ColorRole.ToolTipText: "#edf2f8",
-            QPalette.ColorRole.PlaceholderText: "#9ca9bb",
-            QPalette.ColorRole.Highlight: "#5b8cff",
-            QPalette.ColorRole.HighlightedText: "#ffffff",
-        }
-    else:
-        colors = {
-            QPalette.ColorRole.Window: "#f7f8fb",
-            QPalette.ColorRole.WindowText: "#172033",
-            QPalette.ColorRole.Base: "#ffffff",
-            QPalette.ColorRole.AlternateBase: "#eef2f8",
-            QPalette.ColorRole.Text: "#172033",
-            QPalette.ColorRole.Button: "#e8edf7",
-            QPalette.ColorRole.ButtonText: "#172033",
-            QPalette.ColorRole.ToolTipBase: "#ffffff",
-            QPalette.ColorRole.ToolTipText: "#172033",
-            QPalette.ColorRole.PlaceholderText: "#6a7487",
-            QPalette.ColorRole.Highlight: "#2f6df6",
-            QPalette.ColorRole.HighlightedText: "#ffffff",
+    palette.setColor(QPalette.ColorRole.Window, QColor(colors["window"]))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(colors["text"]))
+    palette.setColor(QPalette.ColorRole.Base, QColor(colors["input_bg"]))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(colors["alternate_bg"]))
+    palette.setColor(QPalette.ColorRole.Text, QColor(colors["text"]))
+    palette.setColor(QPalette.ColorRole.Button, QColor(colors["button_bg"]))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(colors["input_bg"]))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(colors["text"]))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(colors["muted_text"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(colors["selection_bg"]))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(colors["selection_text"]))
+    app.setPalette(palette)
+    app.setStyleSheet(_app_style(colors["mode"]))
+
+
+def _theme_colors(theme_mode: str) -> dict[str, str]:
+    if theme_mode == "dark":
+        return {
+            "mode": "dark",
+            "window": "#171b22",
+            "label": "#e8edf7",
+            "text": "#edf2f8",
+            "muted_text": "#9ca9bb",
+            "input_bg": "#202632",
+            "alternate_bg": "#262e3b",
+            "border": "#3a4658",
+            "button_bg": "#2d3542",
+            "button_hover": "#374253",
+            "button_disabled_bg": "#232a34",
+            "button_disabled_text": "#7f8b9d",
+            "button_disabled_border": "#323b4a",
+            "primary": "#5b8cff",
+            "selection_bg": "#5b8cff",
+            "selection_text": "#ffffff",
         }
 
-    for role, color in colors.items():
-        palette.setColor(role, QColor(color))
-    app.setPalette(palette)
-    app.setStyleSheet(_app_style(mode))
+    return {
+        "mode": "light",
+        "window": "#f7f8fb",
+        "label": "#22314d",
+        "text": "#172033",
+        "muted_text": "#6a7487",
+        "input_bg": "#ffffff",
+        "alternate_bg": "#eef2f8",
+        "border": "#cfd7e6",
+        "button_bg": "#e8edf7",
+        "button_hover": "#dfe7f4",
+        "button_disabled_bg": "#eef2f8",
+        "button_disabled_text": "#8a95a8",
+        "button_disabled_border": "#d8dfeb",
+        "primary": "#2f6df6",
+        "selection_bg": "#dbe8ff",
+        "selection_text": "#10203d",
+    }
 
 
 def _app_style(theme_mode: str = "light") -> str:
@@ -1019,6 +1062,25 @@ def _app_style(theme_mode: str = "light") -> str:
                 color: #edf2f8;
                 selection-background-color: #5b8cff;
                 selection-color: white;
+            }
+            QListWidget {
+                outline: 0;
+            }
+            QListWidget::item {
+                background: #202632;
+                color: #edf2f8;
+                min-height: 22px;
+                padding: 3px 6px;
+                border-radius: 3px;
+            }
+            QListWidget::item:hover {
+                background: #2b3442;
+            }
+            QListWidget::item:selected,
+            QListWidget::item:selected:active,
+            QListWidget::item:selected:!active {
+                background: #5b8cff;
+                color: white;
             }
             QCheckBox, QRadioButton {
                 color: #e8edf7;
@@ -1069,6 +1131,25 @@ def _app_style(theme_mode: str = "light") -> str:
             color: #172033;
             selection-background-color: #2f6df6;
             selection-color: white;
+        }
+        QListWidget {
+            outline: 0;
+        }
+        QListWidget::item {
+            background: white;
+            color: #172033;
+            min-height: 22px;
+            padding: 3px 6px;
+            border-radius: 3px;
+        }
+        QListWidget::item:hover {
+            background: #eef4ff;
+        }
+        QListWidget::item:selected,
+        QListWidget::item:selected:active,
+        QListWidget::item:selected:!active {
+            background: #dbe8ff;
+            color: #10203d;
         }
         QCheckBox, QRadioButton { color: #22314d; spacing: 8px; }
         QPushButton {
