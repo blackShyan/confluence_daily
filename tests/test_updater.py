@@ -37,6 +37,23 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(info.source_dir, dist.resolve())
             self.assertEqual(info.notes, "changed")
 
+    def test_load_update_info_rejects_empty_source_path(self):
+        with self.assertRaisesRegex(UpdateError, "업데이트 경로"):
+            load_update_info("")
+
+    def test_load_update_info_accepts_utf8_bom_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dist = root / "ConfluenceDailyUploader"
+            dist.mkdir()
+            (dist / APP_EXE_NAME).write_text("exe", encoding="utf-8")
+            payload = json.dumps({"version": "0.2.0"}).encode("utf-8")
+            (root / "latest.json").write_bytes(b"\xef\xbb\xbf" + payload)
+
+            info = load_update_info(str(root))
+
+            self.assertEqual(info.version, "0.2.0")
+
     def test_find_update_returns_none_for_same_or_older_version(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

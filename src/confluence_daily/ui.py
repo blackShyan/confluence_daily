@@ -166,6 +166,16 @@ class MainController:
     def check_for_updates(self, silent: bool = False) -> None:
         from PySide6.QtWidgets import QMessageBox
 
+        if not self.config.update_source_path.strip():
+            if not silent:
+                QMessageBox.warning(
+                    None,
+                    "업데이트 경로 필요",
+                    "설정에서 업데이트 경로를 먼저 지정해 주세요.\n\nlatest.json이 있는 NAS 폴더를 넣으면 됩니다.",
+                )
+                self.show_settings_dialog()
+            return
+
         try:
             update_info = find_update(self.config.update_source_path, __version__)
         except Exception as exc:

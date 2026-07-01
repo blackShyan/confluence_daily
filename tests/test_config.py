@@ -13,6 +13,13 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(load_config(path).theme_mode, "dark")
 
+    def test_load_config_accepts_utf8_bom(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "config.json"
+            path.write_bytes(b'\xef\xbb\xbf{"theme_mode": "dark"}')
+
+            self.assertEqual(load_config(path).theme_mode, "dark")
+
     def test_invalid_theme_mode_falls_back_to_light(self):
         self.assertEqual(AppConfig(theme_mode="unknown").effective_theme_mode, "light")
 

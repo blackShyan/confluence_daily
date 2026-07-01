@@ -143,7 +143,7 @@ function Invoke-RobocopyMirror {
         [string]$Destination
     )
 
-    robocopy $Source $Destination /MIR /R:3 /W:1
+    robocopy $Source $Destination /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
     $ExitCode = $LASTEXITCODE
     if ($ExitCode -gt 7) {
         throw "Robocopy failed with exit code $ExitCode`: $Source -> $Destination"
@@ -191,7 +191,7 @@ $ManifestPayload = [ordered]@{
     folder = "ConfluenceDailyUploader"
     notes = ""
 } | ConvertTo-Json
-Set-Content -LiteralPath $Manifest -Value $ManifestPayload -Encoding UTF8
+[System.IO.File]::WriteAllText($Manifest, $ManifestPayload, [System.Text.UTF8Encoding]::new($false))
 
 if ($PublishPath) {
     $PublishRoot = $PublishPath.Trim()

@@ -52,16 +52,18 @@ def find_update(update_source_path: str, current_version: str) -> UpdateInfo | N
 
 
 def load_update_info(update_source_path: str) -> UpdateInfo:
-    source_root = Path(update_source_path.strip())
-    if not str(source_root):
-        raise UpdateError("업데이트 경로가 설정되지 않았습니다.")
+    source_text = update_source_path.strip()
+    if not source_text:
+        raise UpdateError("업데이트 경로가 설정되지 않았습니다. 설정에서 latest.json이 있는 폴더를 지정해 주세요.")
+
+    source_root = Path(source_text)
 
     manifest_path = source_root / MANIFEST_NAME
     if not manifest_path.exists():
         raise UpdateError(f"업데이트 manifest를 찾을 수 없습니다: {manifest_path}")
 
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         raise UpdateError(f"업데이트 manifest를 읽지 못했습니다: {manifest_path}") from exc
 

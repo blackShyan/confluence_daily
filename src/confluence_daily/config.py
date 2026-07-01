@@ -81,7 +81,7 @@ def load_config(path: Path | None = None) -> AppConfig:
     if not target.exists():
         return AppConfig()
 
-    data = json.loads(target.read_text(encoding="utf-8"))
+    data = json.loads(target.read_text(encoding="utf-8-sig"))
     known_keys = {field.name for field in AppConfig.__dataclass_fields__.values()}
     return AppConfig(**{key: value for key, value in data.items() if key in known_keys})
 
