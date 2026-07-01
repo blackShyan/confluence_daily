@@ -74,6 +74,8 @@ class MainController:
         self.write_action.triggered.connect(self.show_daily_dialog)
         self.status_action = QAction("오늘 업로드 상태", self.menu)
         self.status_action.triggered.connect(self.show_today_status)
+        self.open_site_action = QAction("컨플루언스 사이트 열기", self.menu)
+        self.open_site_action.triggered.connect(self.open_confluence_site)
         self.settings_action = QAction("설정", self.menu)
         self.settings_action.triggered.connect(self.show_settings_dialog)
         self.snooze_action = QAction("10분 뒤 다시 알림", self.menu)
@@ -86,6 +88,7 @@ class MainController:
         for action in (
             self.write_action,
             self.status_action,
+            self.open_site_action,
             self.settings_action,
             self.snooze_action,
             self.complete_action,
@@ -127,6 +130,20 @@ class MainController:
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
+
+    def open_confluence_site(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QMessageBox
+
+        url = confluence_site_url(self.config)
+        if not url:
+            QMessageBox.warning(None, "설정 필요", "Confluence URL을 먼저 설정해 주세요.")
+            self.show_settings_dialog()
+            return
+
+        if not QDesktopServices.openUrl(QUrl(url)):
+            QMessageBox.warning(None, "열기 실패", "브라우저에서 Confluence 사이트를 열지 못했습니다.")
 
     def show_today_status(self) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -1083,6 +1100,22 @@ def _configure_browser_profile(profile) -> None:
         profile.setHttpCacheType(profile.HttpCacheType.DiskHttpCache)
     except Exception:
         pass
+
+
+def confluence_site_url(config: AppConfig) -> str:
+    base_url = config.base_url.strip().rstrip("/")
+    if not base_url:
+        return ""
+
+    parent_page_id = config.parent_page_id.strip()
+    if not parent_page_id:
+        return base_url
+
+    if config.is_data_center:
+        return f"{base_url}/pages/viewpage.action?pageId={parent_page_id}"
+
+    wiki_base = base_url if base_url.endswith("/wiki") else f"{base_url}/wiki"
+    return f"{wiki_base}/pages/{parent_page_id}"
 
 
 def _parse_time(value: str) -> time:
