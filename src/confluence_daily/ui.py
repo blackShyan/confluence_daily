@@ -58,6 +58,7 @@ class MainController:
 
         self.app = app
         self.config = load_config()
+        _apply_app_theme(self.app, self.config.effective_theme_mode)
         self.state = DailyState()
         self.daily_dialog = None
         self.settings_dialog = None
@@ -144,6 +145,7 @@ class MainController:
 
     def reload_config(self) -> None:
         self.config = load_config()
+        _apply_app_theme(self.app, self.config.effective_theme_mode)
 
     def check_reminder(self) -> None:
         now = datetime.now()
@@ -457,7 +459,7 @@ class DailyDialog:
         QMessageBox.critical(self.dialog, "업로드 실패", details)
 
     def _apply_style(self) -> None:
-        self.dialog.setStyleSheet(_app_style())
+        self.dialog.setStyleSheet(_app_style(self.controller.config.effective_theme_mode))
         self.upload_button.setObjectName("primary")
         self.upload_button.setDefault(True)
 
@@ -502,6 +504,11 @@ class SettingsDialog:
         self.month_page_policy.addItem("선택한 날짜의 월 페이지", "date_month")
         policy_index = self.month_page_policy.findData(config.month_page_policy)
         self.month_page_policy.setCurrentIndex(max(policy_index, 0))
+        self.theme_mode = QComboBox()
+        self.theme_mode.addItem("라이트 모드", "light")
+        self.theme_mode.addItem("다크 모드", "dark")
+        theme_index = self.theme_mode.findData(config.effective_theme_mode)
+        self.theme_mode.setCurrentIndex(max(theme_index, 0))
         self.reminder_time = QTimeEdit()
         parsed_time = _parse_time(config.reminder_time)
         self.reminder_time.setTime(QTime(parsed_time.hour, parsed_time.minute))
@@ -515,6 +522,7 @@ class SettingsDialog:
         form.addRow("상위 페이지 ID", self.parent_page_id)
         form.addRow("페이지 이름", self.user_name)
         form.addRow("월 페이지 기준", self.month_page_policy)
+        form.addRow("화면 테마", self.theme_mode)
         form.addRow("알림 시간", self.reminder_time)
         form.addRow("", self.autostart)
         outer.addLayout(form)
@@ -618,10 +626,11 @@ class SettingsDialog:
             reminder_time=f"{reminder.hour():02d}:{reminder.minute():02d}",
             timezone="Asia/Seoul",
             autostart=self.autostart.isChecked(),
+            theme_mode=self.theme_mode.currentData(),
         )
 
     def _apply_style(self) -> None:
-        self.dialog.setStyleSheet(_app_style())
+        self.dialog.setStyleSheet(_app_style(self.controller.config.effective_theme_mode))
 
 
 class ReminderDialog:
@@ -650,7 +659,7 @@ class ReminderDialog:
         self.write_button.clicked.connect(self._write)
         self.snooze_button.clicked.connect(self._snooze)
         self.done_button.clicked.connect(self._done)
-        self.dialog.setStyleSheet(_app_style())
+        self.dialog.setStyleSheet(_app_style(self.controller.config.effective_theme_mode))
 
     def show(self) -> None:
         self.dialog.show()
@@ -712,7 +721,7 @@ class BrowserLoginDialog:
 
         self.save_button.clicked.connect(self.save_session)
         self.close_button.clicked.connect(self.dialog.close)
-        self.dialog.setStyleSheet(_app_style())
+        self.dialog.setStyleSheet(_app_style(self.config.effective_theme_mode))
 
         login_url = f"{config.base_url.rstrip('/')}/pages/viewpage.action?pageId={config.parent_page_id}"
         self.view.urlChanged.connect(self._on_url_changed)
@@ -796,9 +805,111 @@ def _parse_time(value: str) -> time:
         return time(18, 0)
 
 
-def _app_style() -> str:
+def _apply_app_theme(app, theme_mode: str) -> None:
+    from PySide6.QtGui import QColor, QPalette
+
+    app.setStyle("Fusion")
+    mode = theme_mode if theme_mode in {"light", "dark"} else "light"
+    palette = QPalette()
+
+    if mode == "dark":
+        colors = {
+            QPalette.ColorRole.Window: "#171b22",
+            QPalette.ColorRole.WindowText: "#e8edf7",
+            QPalette.ColorRole.Base: "#202632",
+            QPalette.ColorRole.AlternateBase: "#262e3b",
+            QPalette.ColorRole.Text: "#edf2f8",
+            QPalette.ColorRole.Button: "#2d3542",
+            QPalette.ColorRole.ButtonText: "#edf2f8",
+            QPalette.ColorRole.ToolTipBase: "#202632",
+            QPalette.ColorRole.ToolTipText: "#edf2f8",
+            QPalette.ColorRole.PlaceholderText: "#9ca9bb",
+            QPalette.ColorRole.Highlight: "#5b8cff",
+            QPalette.ColorRole.HighlightedText: "#ffffff",
+        }
+    else:
+        colors = {
+            QPalette.ColorRole.Window: "#f7f8fb",
+            QPalette.ColorRole.WindowText: "#172033",
+            QPalette.ColorRole.Base: "#ffffff",
+            QPalette.ColorRole.AlternateBase: "#eef2f8",
+            QPalette.ColorRole.Text: "#172033",
+            QPalette.ColorRole.Button: "#e8edf7",
+            QPalette.ColorRole.ButtonText: "#172033",
+            QPalette.ColorRole.ToolTipBase: "#ffffff",
+            QPalette.ColorRole.ToolTipText: "#172033",
+            QPalette.ColorRole.PlaceholderText: "#6a7487",
+            QPalette.ColorRole.Highlight: "#2f6df6",
+            QPalette.ColorRole.HighlightedText: "#ffffff",
+        }
+
+    for role, color in colors.items():
+        palette.setColor(role, QColor(color))
+    app.setPalette(palette)
+    app.setStyleSheet(_app_style(mode))
+
+
+def _app_style(theme_mode: str = "light") -> str:
+    if theme_mode == "dark":
+        return """
+            QDialog, QMenu {
+                background: #171b22;
+                color: #e8edf7;
+                font-size: 14px;
+            }
+            QLabel {
+                font-weight: 600;
+                color: #e8edf7;
+            }
+            QLabel#imagePreview {
+                background: #202632;
+                border: 1px solid #3a4658;
+                border-radius: 6px;
+                color: #9ca9bb;
+                font-weight: 500;
+                padding: 8px;
+            }
+            QDateEdit, QTextEdit, QListWidget, QLineEdit, QTimeEdit, QComboBox {
+                background: #202632;
+                color: #edf2f8;
+                selection-background-color: #5b8cff;
+                selection-color: white;
+                border: 1px solid #3a4658;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QComboBox QAbstractItemView, QListWidget::item {
+                background: #202632;
+                color: #edf2f8;
+                selection-background-color: #5b8cff;
+                selection-color: white;
+            }
+            QCheckBox {
+                color: #e8edf7;
+                spacing: 8px;
+            }
+            QPushButton {
+                background: #2d3542;
+                color: #edf2f8;
+                border: 1px solid #3a4658;
+                border-radius: 6px;
+                padding: 8px 14px;
+            }
+            QPushButton:hover { background: #374253; }
+            QPushButton:disabled {
+                background: #232a34;
+                color: #7f8b9d;
+                border-color: #323b4a;
+            }
+            QPushButton:default, QPushButton#primary {
+                background: #5b8cff;
+                color: white;
+                border-color: #5b8cff;
+            }
+        """
+
     return """
-        QDialog { background: #f7f8fb; color: #172033; font-size: 14px; }
+        QDialog, QMenu { background: #f7f8fb; color: #172033; font-size: 14px; }
         QLabel { font-weight: 600; color: #22314d; }
         QLabel#imagePreview {
             background: white;
@@ -810,17 +921,33 @@ def _app_style() -> str:
         }
         QDateEdit, QTextEdit, QListWidget, QLineEdit, QTimeEdit, QComboBox {
             background: white;
+            color: #172033;
+            selection-background-color: #2f6df6;
+            selection-color: white;
             border: 1px solid #cfd7e6;
             border-radius: 6px;
             padding: 8px;
         }
+        QComboBox QAbstractItemView, QListWidget::item {
+            background: white;
+            color: #172033;
+            selection-background-color: #2f6df6;
+            selection-color: white;
+        }
+        QCheckBox { color: #22314d; spacing: 8px; }
         QPushButton {
             background: #e8edf7;
+            color: #172033;
             border: 1px solid #c8d2e3;
             border-radius: 6px;
             padding: 8px 14px;
         }
         QPushButton:hover { background: #dfe7f4; }
+        QPushButton:disabled {
+            background: #eef2f8;
+            color: #8a95a8;
+            border-color: #d8dfeb;
+        }
         QPushButton:default, QPushButton#primary {
             background: #2f6df6;
             color: white;

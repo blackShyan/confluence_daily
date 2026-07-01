@@ -25,6 +25,7 @@ class AppConfig:
     reminder_time: str = "18:00"
     timezone: str = "Asia/Seoul"
     autostart: bool = False
+    theme_mode: str = "light"
 
     @property
     def is_data_center(self) -> bool:
@@ -37,6 +38,10 @@ class AppConfig:
     @property
     def effective_space_key(self) -> str:
         return (self.space_key or self.space_id).strip()
+
+    @property
+    def effective_theme_mode(self) -> str:
+        return self.theme_mode if self.theme_mode in {"light", "dark"} else "light"
 
     def validate_for_upload(self) -> None:
         missing = []
