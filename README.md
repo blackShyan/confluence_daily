@@ -1,6 +1,6 @@
 # Confluence Daily Uploader
 
-회사 Confluence에 데일리 캡처/녹화 파일과 코멘트를 자동으로 올리는 Windows 트레이 앱입니다.
+회사 Confluence에 데일리 캡처/녹화 파일 또는 텍스트 데일리를 자동으로 올리는 Windows 트레이 앱입니다.
 
 ## 기능
 
@@ -10,6 +10,7 @@
 - 설정된 상위 페이지 아래에 월별 데일리 페이지를 생성하거나 갱신합니다.
 - 주차별 접힘 섹션과 `날짜 | 업무 내용 | 참고` 표를 만듭니다.
 - 이미지/영상 파일을 Confluence 첨부로 업로드합니다.
+- 파일 없이 `텍스트 모드`로 업무 내용 칸에 본문만 올릴 수 있습니다.
 - 파일 선택 대신 클립보드에 복사된 이미지를 바로 추가할 수 있습니다.
 - 데일리 작성창에 파일을 드래그 앤 드랍하거나 `Ctrl+V`로 클립보드 파일/이미지를 붙여넣을 수 있습니다.
 - 이미지는 미리보기로, 영상은 첨부 링크로 표에 넣습니다.
@@ -66,6 +67,11 @@ run_daily_uploader.bat
 데일리 작성 창에서 `클립보드 이미지 추가`를 누르면 현재 클립보드에 복사된 이미지를 PNG로 저장하고 업로드 목록에 추가합니다. 추가된 이미지는 작성창의 이미지 프리뷰 영역에 바로 표시됩니다.
 파일을 복사한 뒤 데일리 작성창에서 `Ctrl+V`를 누르면 해당 파일도 업로드 목록에 추가됩니다.
 
+## 작성 모드
+
+- `컨텐츠 모드`: 기존처럼 파일 추가, 클립보드 이미지 추가, 드래그 앤 드랍, `Ctrl+V` 붙여넣기를 사용합니다. 선택한 파일은 `업무 내용` 칸에 들어가고, 작성한 코멘트는 `참고` 칸에 들어갑니다.
+- `텍스트 모드`: 파일 없이 입력한 본문이 `업무 내용` 칸에 들어갑니다.
+
 ## 테스트
 
 ```powershell
@@ -89,7 +95,7 @@ build_exe.bat
 버전을 지정해서 빌드:
 
 ```powershell
-.\scripts\build_exe.ps1 -Version 0.1.1
+.\scripts\build_exe.ps1 -Version 0.2.0
 ```
 
 빌드 결과는 `dist\ConfluenceDailyUploader\ConfluenceDailyUploader.exe`에 생성되고, 업데이트용 manifest는 `dist\latest.json`에 생성됩니다.
@@ -104,7 +110,7 @@ QtWebEngine 로그인창에 필요한 DLL과 리소스가 함께 들어가므로
 빌드 후 파일 서버 업데이트 경로에 바로 올릴 때는 아래처럼 실행합니다.
 
 ```powershell
-.\scripts\build_exe.ps1 -Version 0.1.1 -PublishPath "\\server\share\Tools\ConfluenceDailyUploader"
+.\scripts\build_exe.ps1 -Version 0.2.0 -PublishPath "\\server\share\Tools\ConfluenceDailyUploader"
 ```
 
 ## 업데이트 배포
@@ -124,7 +130,7 @@ Tools\ConfluenceDailyUploader\
 
 ```json
 {
-  "version": "0.1.1",
+  "version": "0.2.0",
   "folder": "ConfluenceDailyUploader",
   "notes": "변경 내용 메모"
 }

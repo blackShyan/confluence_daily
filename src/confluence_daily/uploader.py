@@ -44,6 +44,7 @@ class DailyUploader:
         else:
             page = self.client.get_page(page.page_id)
 
+        work_text = daily.text_body if daily.content_mode == "text" else ""
         if conflict_policy == "cancel" and has_daily_conflict_for_month(
             page.storage,
             daily.work_date,
@@ -58,9 +59,14 @@ class DailyUploader:
                 report_month.year,
                 report_month.month,
                 "cancel",
+                work_text=work_text,
             )
 
-        uploaded = tuple(self._upload_files(page.page_id, daily.work_date, daily.file_paths))
+        uploaded = (
+            tuple()
+            if daily.content_mode == "text"
+            else tuple(self._upload_files(page.page_id, daily.work_date, daily.file_paths))
+        )
         updated_storage = update_storage_for_entry_for_month(
             page.storage,
             daily.work_date,
@@ -69,6 +75,7 @@ class DailyUploader:
             report_month.year,
             report_month.month,
             conflict_policy,
+            work_text=work_text,
         )
         updated = self.client.update_page(page, updated_storage, "Update daily report")
         self.state.mark_uploaded(daily.work_date, updated.page_id, updated.web_url)

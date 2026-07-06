@@ -1,6 +1,6 @@
 """Confluence Daily Uploader."""
 
-_DEFAULT_VERSION = "0.1.4"
+_DEFAULT_VERSION = "0.2.0"
 
 try:
     from ._build_version import __version__

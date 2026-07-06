@@ -49,6 +49,23 @@ class PageBuilderTests(unittest.TestCase):
         self.assertIn("clip.mp4", updated)
         self.assertIn("<ac:parameter ac:name=\"height\">250</ac:parameter>", updated)
 
+    def test_text_only_work_body_goes_to_work_cell_without_attachment(self):
+        storage = build_month_storage(2026, 7)
+
+        updated = update_storage_for_entry(
+            storage,
+            date(2026, 7, 1),
+            tuple(),
+            "",
+            work_text="rig check\nsequence check",
+        )
+
+        self.assertIn('datetime="2026-07-01"', updated)
+        self.assertIn("rig check", updated)
+        self.assertIn("sequence check", updated)
+        self.assertNotIn("ac:attachment", updated)
+        self.assertTrue(has_daily_conflict(updated, date(2026, 7, 1)))
+
     def test_existing_tbody_table_is_updated_in_place(self):
         storage = """
 <ac:structured-macro ac:name="expand" ac:schema-version="1">

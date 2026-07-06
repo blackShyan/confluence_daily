@@ -8,6 +8,7 @@ from typing import Literal
 
 MediaKind = Literal["image", "video", "other"]
 ConflictPolicy = Literal["cancel", "overwrite", "append"]
+ContentMode = Literal["content", "text"]
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,8 @@ class DailyInput:
     work_date: date
     file_paths: tuple[Path, ...]
     comment: str
+    content_mode: ContentMode = "content"
+    text_body: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,4 +58,3 @@ class ConfigurationError(DailyUploaderError):
 
 class ConfluenceApiError(DailyUploaderError):
     """Raised when Confluence returns an unsuccessful response."""
-

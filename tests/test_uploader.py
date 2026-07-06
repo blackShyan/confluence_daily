@@ -61,6 +61,36 @@ class UploaderTests(unittest.TestCase):
         self.assertEqual(client.find_titles[0], "\uc0ac\uc6a9\uc790_2026\ub144 7\uc6d4")
         self.assertIn('datetime="2026-06-29"', client.updated_pages[0][1])
 
+    def test_text_mode_upload_skips_attachments_and_writes_work_body(self):
+        config = AppConfig(
+            base_url="https://confluence.example.com",
+            email="user@example.com",
+            api_mode="data_center",
+            space_key="TEAM",
+            parent_page_id="1234567890",
+            user_name="\uc0ac\uc6a9\uc790",
+            month_page_policy="date_month",
+        )
+        client = FakeClient()
+        state = FakeState()
+        uploader = DailyUploader(config, client=client, state=state)
+
+        uploader.upload(
+            DailyInput(
+                date(2026, 7, 1),
+                (Path("shot.png"),),
+                "",
+                content_mode="text",
+                text_body="회의 정리\n문서 업데이트",
+            ),
+            "overwrite",
+        )
+
+        self.assertEqual(client.uploads, [])
+        self.assertIn("회의 정리", client.updated_pages[0][1])
+        self.assertIn("문서 업데이트", client.updated_pages[0][1])
+        self.assertNotIn("shot.png", client.updated_pages[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

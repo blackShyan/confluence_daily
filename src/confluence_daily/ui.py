@@ -367,14 +367,17 @@ class DailyDialog:
         from PySide6.QtCore import QDate, QTimer, Qt
         from PySide6.QtGui import QKeySequence, QShortcut
         from PySide6.QtWidgets import (
+            QButtonGroup,
             QDateEdit,
             QDialog,
             QHBoxLayout,
             QLabel,
             QListWidget,
             QPushButton,
+            QRadioButton,
             QTextEdit,
             QVBoxLayout,
+            QWidget,
         )
 
         class DropDialog(QDialog):
@@ -431,13 +434,31 @@ class DailyDialog:
         layout.addWidget(QLabel("날짜"))
         layout.addWidget(self.date_edit)
 
-        layout.addWidget(QLabel("캡처/녹화 파일"))
+        self.mode_group = QButtonGroup(self.dialog)
+        self.content_mode_button = QRadioButton("컨텐츠 모드")
+        self.text_mode_button = QRadioButton("텍스트 모드")
+        self.content_mode_button.setChecked(True)
+        self.mode_group.addButton(self.content_mode_button)
+        self.mode_group.addButton(self.text_mode_button)
+        mode_row = QWidget()
+        mode_layout = QHBoxLayout(mode_row)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.addWidget(self.content_mode_button)
+        mode_layout.addWidget(self.text_mode_button)
+        mode_layout.addStretch(1)
+        layout.addWidget(QLabel("작성 모드"))
+        layout.addWidget(mode_row)
+
+        self.file_section_label = QLabel("캡처/녹화 파일")
+        layout.addWidget(self.file_section_label)
         self.file_list = DropFileList(self)
         self.file_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.file_list.setToolTip("파일을 드래그 앤 드랍하거나 Ctrl+V로 붙여넣을 수 있습니다.")
         layout.addWidget(self.file_list, 1)
 
-        file_buttons = QHBoxLayout()
+        self.file_buttons_widget = QWidget()
+        file_buttons = QHBoxLayout(self.file_buttons_widget)
+        file_buttons.setContentsMargins(0, 0, 0, 0)
         self.add_button = QPushButton("파일 추가")
         self.clipboard_button = QPushButton("클립보드 이미지 추가")
         self.remove_button = QPushButton("선택 제거")
@@ -445,9 +466,10 @@ class DailyDialog:
         file_buttons.addWidget(self.clipboard_button)
         file_buttons.addWidget(self.remove_button)
         file_buttons.addStretch(1)
-        layout.addLayout(file_buttons)
+        layout.addWidget(self.file_buttons_widget)
 
-        layout.addWidget(QLabel("이미지 프리뷰"))
+        self.preview_section_label = QLabel("이미지 프리뷰")
+        layout.addWidget(self.preview_section_label)
         self.preview_label = QLabel("이미지 파일을 선택하거나 클립보드 이미지를 추가하면 여기 표시됩니다.")
         self.preview_label.setObjectName("imagePreview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -456,7 +478,8 @@ class DailyDialog:
         self.preview_label.setWordWrap(True)
         layout.addWidget(self.preview_label)
 
-        layout.addWidget(QLabel("참고 comment"))
+        self.comment_label = QLabel("참고 comment")
+        layout.addWidget(self.comment_label)
         self.comment_edit = QTextEdit()
         self.comment_edit.setPlaceholderText("오늘 한 일을 적어주세요.")
         layout.addWidget(self.comment_edit, 1)
@@ -476,9 +499,11 @@ class DailyDialog:
         self.upload_button.clicked.connect(self.upload)
         self.close_button.clicked.connect(self.dialog.close)
         self.session_login_button.clicked.connect(self.controller.show_login_dialog)
+        self.mode_group.buttonToggled.connect(self.apply_content_mode)
         self.paste_shortcut = QShortcut(QKeySequence.StandardKey.Paste, self.dialog)
         self.paste_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.paste_shortcut.activated.connect(self.paste_from_clipboard)
+        self.apply_content_mode()
         self._apply_style()
         QTimer.singleShot(100, self.refresh_session_status)
 
@@ -494,6 +519,9 @@ class DailyDialog:
     def add_files(self) -> None:
         from PySide6.QtWidgets import QFileDialog
 
+        if self.is_text_mode():
+            return
+
         files, _ = QFileDialog.getOpenFileNames(
             self.dialog,
             "캡처/녹화 파일 선택",
@@ -503,6 +531,9 @@ class DailyDialog:
         self.add_file_paths([Path(file_name) for file_name in files])
 
     def add_file_paths(self, paths: list[Path] | tuple[Path, ...]) -> bool:
+        if self.is_text_mode():
+            return False
+
         existing = {self.file_list.item(index).text() for index in range(self.file_list.count())}
         last_added_row = None
         for path in paths:
@@ -523,12 +554,15 @@ class DailyDialog:
         return False
 
     def add_clipboard_image(self) -> None:
+        if self.is_text_mode():
+            return
+
         self.add_clipboard_content(prefer_files=False, show_warning=True)
 
     def paste_from_clipboard(self) -> None:
         from PySide6.QtWidgets import QApplication
 
-        if self.add_clipboard_content(prefer_files=True, show_warning=False):
+        if not self.is_text_mode() and self.add_clipboard_content(prefer_files=True, show_warning=False):
             return
 
         focused = QApplication.focusWidget()
@@ -538,6 +572,9 @@ class DailyDialog:
 
     def add_clipboard_content(self, prefer_files: bool, show_warning: bool) -> bool:
         from PySide6.QtWidgets import QApplication, QMessageBox
+
+        if self.is_text_mode():
+            return False
 
         clipboard = QApplication.clipboard()
         if prefer_files and self.add_file_paths(self._file_paths_from_mime_data(clipboard.mimeData())):
@@ -573,12 +610,20 @@ class DailyDialog:
         return True
 
     def handle_drag_enter(self, event) -> None:
+        if self.is_text_mode():
+            event.ignore()
+            return
+
         if self._file_paths_from_mime_data(event.mimeData()):
             event.acceptProposedAction()
             return
         event.ignore()
 
     def handle_drop(self, event) -> None:
+        if self.is_text_mode():
+            event.ignore()
+            return
+
         if self.add_file_paths(self._file_paths_from_mime_data(event.mimeData())):
             event.acceptProposedAction()
             return
@@ -661,6 +706,29 @@ class DailyDialog:
         for index in range(self.file_list.count()):
             self._apply_file_item_style(self.file_list.item(index))
 
+    def is_text_mode(self) -> bool:
+        return self.text_mode_button.isChecked()
+
+    def apply_content_mode(self, *_args) -> None:
+        is_text = self.is_text_mode()
+        for widget in (
+            self.file_section_label,
+            self.file_list,
+            self.file_buttons_widget,
+            self.preview_section_label,
+            self.preview_label,
+        ):
+            widget.setVisible(not is_text)
+
+        if is_text:
+            self.comment_label.setText("본문")
+            self.comment_edit.setPlaceholderText("업무 내용 칸에 올릴 텍스트를 적어주세요.")
+            self.dialog.resize(560, 420)
+        else:
+            self.comment_label.setText("참고 comment")
+            self.comment_edit.setPlaceholderText("오늘 한 일을 적어주세요.")
+            self.dialog.resize(560, 520)
+
     def refresh_session_status(self) -> None:
         self.set_session_status(False, "인증 확인 중", checking=True)
         valid, message = self.controller.check_session_status()
@@ -685,9 +753,18 @@ class DailyDialog:
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QMessageBox
 
-        file_paths = tuple(Path(self.file_list.item(index).text()) for index in range(self.file_list.count()))
-        if not file_paths:
+        text = self.comment_edit.toPlainText().strip()
+        is_text_mode = self.is_text_mode()
+        file_paths = (
+            tuple()
+            if is_text_mode
+            else tuple(Path(self.file_list.item(index).text()) for index in range(self.file_list.count()))
+        )
+        if not is_text_mode and not file_paths:
             QMessageBox.warning(self.dialog, "파일 필요", "캡처 또는 녹화 파일을 하나 이상 선택해 주세요.")
+            return
+        if is_text_mode and not text:
+            QMessageBox.warning(self.dialog, "본문 필요", "텍스트 모드에서는 본문을 입력해 주세요.")
             return
 
         work_date = self.date_edit.date().toPython()
@@ -698,7 +775,9 @@ class DailyDialog:
         daily = DailyInput(
             work_date=work_date,
             file_paths=file_paths,
-            comment=self.comment_edit.toPlainText().strip(),
+            comment="" if is_text_mode else text,
+            content_mode="text" if is_text_mode else "content",
+            text_body=text if is_text_mode else "",
         )
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)

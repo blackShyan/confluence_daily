@@ -75,6 +75,7 @@ def update_storage_for_entry(
     comment: str,
     conflict_policy: ConflictPolicy = "cancel",
     minimum_weeks: int = 4,
+    work_text: str = "",
 ) -> str:
     return update_storage_for_entry_for_month(
         storage,
@@ -85,6 +86,7 @@ def update_storage_for_entry(
         work_date.month,
         conflict_policy,
         minimum_weeks,
+        work_text,
     )
 
 
@@ -97,6 +99,7 @@ def update_storage_for_entry_for_month(
     target_month: int,
     conflict_policy: ConflictPolicy = "cancel",
     minimum_weeks: int = 4,
+    work_text: str = "",
 ) -> str:
     root = _parse_storage(storage)
     required_weeks = max(minimum_weeks, weeks_in_month(target_year, target_month))
@@ -118,12 +121,14 @@ def update_storage_for_entry_for_month(
         raise DailyEntryConflict(f"{format_date_label(work_date)} row already has content.")
 
     _replace_cell(date_cell, _date_elements(work_date))
-    work_elements = _attachment_elements(attachments)
+    work_elements = _work_elements(attachments, work_text)
     comment_elements = _comment_elements(comment)
 
     if conflict and conflict_policy == "append":
-        _append_to_cell(work_cell, work_elements)
-        _append_to_cell(comment_cell, comment_elements)
+        if _elements_have_content(work_elements):
+            _append_to_cell(work_cell, work_elements)
+        if _elements_have_content(comment_elements):
+            _append_to_cell(comment_cell, comment_elements)
     else:
         _replace_cell(work_cell, work_elements)
         _replace_cell(comment_cell, comment_elements)
@@ -311,13 +316,29 @@ def _date_elements(work_date: date) -> list[ET.Element]:
 
 
 def _comment_elements(comment: str) -> list[ET.Element]:
-    lines = comment.splitlines()
+    return _text_elements(comment)
+
+
+def _text_elements(text: str) -> list[ET.Element]:
+    lines = text.splitlines()
     if not lines:
         return [_br()]
     if len(lines) == 1:
-        paragraph = _paragraph(lines[0])
-        return [paragraph]
-    return [_paragraph(line) for line in lines]
+        return [_paragraph_for_line(lines[0])]
+    return [_paragraph_for_line(line) for line in lines]
+
+
+def _paragraph_for_line(line: str) -> ET.Element:
+    paragraph = _paragraph(line)
+    if not line:
+        paragraph.append(_br())
+    return paragraph
+
+
+def _work_elements(attachments: tuple[UploadedAttachment, ...], work_text: str) -> list[ET.Element]:
+    if work_text.strip():
+        return _text_elements(work_text)
+    return _attachment_elements(attachments)
 
 
 def _attachment_elements(attachments: tuple[UploadedAttachment, ...]) -> list[ET.Element]:
@@ -333,6 +354,19 @@ def _attachment_elements(attachments: tuple[UploadedAttachment, ...]) -> list[ET
         else:
             media_nodes.append(_attachment_link_node(attachment.attachment_name))
     return [_content_wrapper(media_nodes)]
+
+
+def _elements_have_content(elements: list[ET.Element]) -> bool:
+    for element in elements:
+        for text in element.itertext():
+            if text.replace("\xa0", "").strip():
+                return True
+
+        for node in element.iter():
+            local = _local_name(node.tag)
+            if local in {"image", "link", "attachment", "structured-macro"}:
+                return True
+    return False
 
 
 def _image_node(filename: str) -> ET.Element:
